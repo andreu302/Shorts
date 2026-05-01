@@ -36,14 +36,12 @@ export default function App() {
   const [postStatus, setPostStatus] = useState<'idle' | 'posting' | 'success'>('idle');
   const generatorRef = useRef<HTMLDivElement>(null);
 
-  // Safe way to get the API Key without crashing the browser
+  // Safe way to get the API Key
   const ai = useMemo(() => {
     try {
-      // In Vite, we should check both import.meta.env and the defined process.env
-      const key = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+      const key = import.meta.env.VITE_GEMINI_API_KEY;
       
-      if (!key || key === 'MY_GEMINI_API_KEY') {
-        console.warn("GEMINI_API_KEY não encontrada.");
+      if (!key || key === 'MY_GEMINI_API_KEY' || key === "") {
         return null;
       }
       return new GoogleGenAI(key);
@@ -213,12 +211,21 @@ export default function App() {
                 </div>
 
                 <form onSubmit={handleGenerate} className="space-y-6">
+                  {!ai && (
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <div>
+                        <strong>Atenção:</strong> Chave de API não configurada. 
+                        Configure <code>VITE_GEMINI_API_KEY</code> no Vercel para usar a IA.
+                      </div>
+                    </div>
+                  )}
                   <div className="relative">
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder="Ex: Um astronauta tomando café em Marte no estilo cyberpunk..."
-                      className="w-full h-40 bg-[#0a0524] border border-white/10 rounded-2xl p-6 text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-neon-purple/50 transition-all resize-none font-medium"
+                      className="w-full h-40 bg-[#0a0524] border border-white/10 rounded-2xl p-6 text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-neon-purple/50 transition-all resize-none font-medium text-lg"
                       id="video-prompt-input"
                     />
                     <div className="absolute bottom-4 right-4 text-xs text-slate-500">
