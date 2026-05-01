@@ -36,14 +36,21 @@ export default function App() {
   const [postStatus, setPostStatus] = useState<'idle' | 'posting' | 'success'>('idle');
   const generatorRef = useRef<HTMLDivElement>(null);
 
-  // Lazy initialize AI client
+  // Safe way to get the API Key without crashing the browser
   const ai = useMemo(() => {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key || key === 'MY_GEMINI_API_KEY') {
-      console.warn("GEMINI_API_KEY is missing. AI features will not work.");
+    try {
+      // In Vite, we should check both import.meta.env and the defined process.env
+      const key = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+      
+      if (!key || key === 'MY_GEMINI_API_KEY') {
+        console.warn("GEMINI_API_KEY não encontrada.");
+        return null;
+      }
+      return new GoogleGenAI(key);
+    } catch (e) {
+      console.error("Erro ao inicializar IA:", e);
       return null;
     }
-    return new GoogleGenAI(key);
   }, []);
 
   const scrollToGenerator = () => {
