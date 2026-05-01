@@ -27,6 +27,7 @@ interface StoryboardShot {
   time: string;
   action: string;
   caption: string;
+  thumbnail?: string;
 }
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [storyboard, setStoryboard] = useState<StoryboardShot[]>([]);
   const [videoGenerated, setVideoGenerated] = useState(false);
+  const [postStatus, setPostStatus] = useState<'idle' | 'posting' | 'success'>('idle');
   const generatorRef = useRef<HTMLDivElement>(null);
 
   const scrollToGenerator = () => {
@@ -45,15 +47,38 @@ export default function App() {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Crie um roteiro de 15 segundos para um YouTube Short baseado neste prompt: "${userPrompt}". 
-        Retorne APENAS um JSON no formato: [{"time": "0s-3s", "action": "descrição visual", "caption": "texto da legenda"}]. 
-        Máximo de 4 cenas.`,
+        Retorne APENAS um JSON no formato: [{"time": "0s-3s", "action": "descrição visual detalhada em inglês para um gerador de imagens", "caption": "texto da legenda em português"}]. 
+        Máximo de 3 cenas.`,
         config: {
           responseMimeType: "application/json",
         }
       });
       
       const data = JSON.parse(response.text || "[]");
-      setStoryboard(data);
+      
+      // Now generate images for each shot
+      const shotsWithImages = await Promise.all(data.map(async (shot: any) => {
+        try {
+          const imgResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: [{ text: `${shot.action}, cinemático, alta definição, estilo dark neon purple` }],
+            config: {
+              imageConfig: { aspectRatio: "9:16" }
+            }
+          });
+          
+          const part = imgResponse.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+          return {
+            ...shot,
+            thumbnail: part ? `data:image/png;base64,${part.inlineData.data}` : undefined
+          };
+        } catch (e) {
+          console.error("Failed to generate image for shot", e);
+          return shot;
+        }
+      }));
+
+      setStoryboard(shotsWithImages);
     } catch (error) {
       console.error("Failed to generate storyboard", error);
     }
@@ -67,14 +92,31 @@ export default function App() {
     setVideoGenerated(false);
     setStoryboard([]);
 
-    // Actual AI call for creativity
     await generateStoryboard(prompt);
     
-    // Simulate Video Rendering
     setTimeout(() => {
       setIsGenerating(false);
       setVideoGenerated(true);
-    }, 3000);
+    }, 1000);
+  };
+
+  const handlePost = async () => {
+    setPostStatus('posting');
+    try {
+      const res = await fetch('/api/post-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPostStatus('success');
+        alert(data.message);
+      }
+    } catch (e) {
+      console.error("Post failed", e);
+      setPostStatus('idle');
+    }
   };
 
   return (
@@ -219,22 +261,36 @@ export default function App() {
                       </div>
                       
                       {storyboard.length > 0 && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {storyboard.map((shot, idx) => (
                             <motion.div 
                               key={idx}
                               initial={{ opacity: 0, x: -10 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: idx * 0.1 }}
-                              className="p-4 rounded-xl bg-white/5 border border-white/10"
+                              className="group relative rounded-xl bg-white/5 border border-white/10 overflow-hidden"
                             >
-                              <div className="flex justify-between items-start mb-2">
-                                <span className="text-[10px] font-bold text-neon-purple px-2 py-0.5 rounded bg-neon-purple/10">{shot.time}</span>
-                                <Film className="w-3 h-3 text-slate-500" />
-                              </div>
-                              <p className="text-xs text-slate-300 font-medium mb-2">{shot.action}</p>
-                              <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                                <Type className="w-3 h-3" /> "{shot.caption}"
+                              {shot.thumbnail ? (
+                                <img 
+                                  src={shot.thumbnail} 
+                                  alt={`Cena ${idx + 1}`} 
+                                  className="w-full aspect-[9/16] object-cover opacity-60 group-hover:opacity-100 transition-opacity"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="w-full aspect-[9/16] bg-slate-800 flex items-center justify-center">
+                                  <Loader2 className="animate-spin text-neon-purple" />
+                                </div>
+                              )}
+                              
+                              <div className="absolute inset-0 p-4 flex flex-col justify-between bg-gradient-to-t from-black to-transparent pointer-events-none">
+                                <span className="self-start text-[10px] font-bold text-neon-purple px-2 py-0.5 rounded bg-black/50 border border-neon-purple/30">{shot.time}</span>
+                                <div>
+                                  <p className="text-[10px] text-slate-300 font-medium mb-1 line-clamp-2">{shot.action}</p>
+                                  <div className="flex items-center gap-2 text-[10px] text-white font-bold italic">
+                                    <Type className="w-3 h-3" /> "{shot.caption}"
+                                  </div>
+                                </div>
                               </div>
                             </motion.div>
                           ))}
@@ -275,8 +331,18 @@ export default function App() {
                         <button className="flex-1 py-4 bg-white text-black font-bold rounded-xl hover:bg-slate-200 transition-colors flex items-center justify-center gap-2">
                           <Video className="w-5 h-5" /> Baixar em HD
                         </button>
-                        <button className="flex-1 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-colors flex items-center justify-center gap-2">
-                          Postar no YouTube
+                        <button 
+                          onClick={handlePost}
+                          disabled={postStatus !== 'idle'}
+                          className={`flex-1 py-4 font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                            postStatus === 'success' 
+                            ? 'bg-green-500 text-white' 
+                            : 'bg-white/5 border border-white/10 text-white hover:bg-white/10'
+                          }`}
+                        >
+                          {postStatus === 'posting' ? <Loader2 className="animate-spin w-5 h-5" /> : null}
+                          {postStatus === 'success' ? <CheckCircle2 className="w-5 h-5" /> : null}
+                          {postStatus === 'success' ? 'Postado!' : 'Postar no YouTube'}
                         </button>
                       </div>
                     </motion.div>
